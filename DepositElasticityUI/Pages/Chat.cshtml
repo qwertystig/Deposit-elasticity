@@ -12,24 +12,12 @@
             @await Html.PartialAsync("_BrandMark")
         </div>
 
-        <button type="button" class="bde-new-chat" onclick="location.reload()">
+        <button type="button" class="bde-new-chat" onclick="bdeNewAnalysis()">
             <span>+</span><span>New analysis</span>
         </button>
 
-        <div class="bde-rail-label">Recent</div>
-        <div class="bde-rail-list">
-            <div class="bde-rail-item active">
-                <div class="bde-rail-item-title">United States portfolio — full view</div>
-                <div class="bde-rail-item-meta">Today · 09:41</div>
-            </div>
-            <div class="bde-rail-item">
-                <div class="bde-rail-item-title">Caterpillar Treasury Ltd drill-down</div>
-                <div class="bde-rail-item-meta">Yesterday · 16:02</div>
-            </div>
-            <div class="bde-rail-item">
-                <div class="bde-rail-item-title">EMEA sector comparison</div>
-                <div class="bde-rail-item-meta">2 days ago</div>
-            </div>
+        <div class="bde-rail-list" id="bdeRailList">
+            <!-- populated by bdeInitSessions() / bdeRenderSessionList() -->
         </div>
 
         <div class="bde-rail-foot">

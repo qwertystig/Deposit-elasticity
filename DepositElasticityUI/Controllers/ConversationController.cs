@@ -12,15 +12,18 @@ namespace DepositElasticity.Controllers
         private readonly IConversationAgentService _conversation;
         private readonly IConfiguration _config;
         private readonly ILogger<ConversationController> _logger;
+        private readonly SessionStore _sessions;
 
         public ConversationController(
             IConversationAgentService conversation,
             IConfiguration config,
-            ILogger<ConversationController> logger)
+            ILogger<ConversationController> logger,
+            SessionStore sessions)
         {
             _conversation = conversation;
             _config = config;
             _logger = logger;
+            _sessions = sessions;
         }
 
         // ── Session key helpers ──────────────────────────────────────────────
@@ -133,10 +136,10 @@ namespace DepositElasticity.Controllers
         // ── POST send-async/{slotKey} ────────────────────────────────────────
         [HttpPost("send-async/{slotKey}")]
         [RequestSizeLimit(50_000_000)]
-        public async Task<IActionResult> SendAsync(string slotKey, [FromForm] string? query, IFormFile? file)
+        public async Task<IActionResult> SendAsync(string slotKey, [FromForm] string? query, [FromForm] string? sessionId, IFormFile? file)
         {
-            _logger.LogInformation("[ConversationController] SendAsync called — slot: {SlotKey}, query: '{Query}', hasFile: {HasFile}",
-                slotKey, query, file != null);
+            _logger.LogInformation("[ConversationController] SendAsync called — slot: {SlotKey}, session: {SessionId}, query: '{Query}', hasFile: {HasFile}",
+                slotKey, sessionId, query, file != null);
 
             // FIX: a plain text query with no file is perfectly valid for all conversation
             // agents (execed, universityassistant, etc.). The previous guard was correct in
@@ -148,19 +151,60 @@ namespace DepositElasticity.Controllers
             try
             {
                 var assetId = ResolveAssetId(slotKey);
+                var userEmail = HttpContext.Session.GetString("Email");
 
-                var convId = HttpContext.Session.GetString(ConvIdKey(slotKey));
-                if (string.IsNullOrEmpty(convId))
+                string? convId;
+                string? resolvedSessionId = null;
+
+                if (!string.IsNullOrEmpty(sessionId) && !string.IsNullOrEmpty(userEmail))
                 {
-                    convId = await _conversation.CreateConversationAsync(assetId);
-                    HttpContext.Session.SetString(ConvIdKey(slotKey), convId);
-                    _logger.LogInformation("[ConversationController] Created new conversation {ConvId} for slot {SlotKey}",
-                        convId, slotKey);
+                    // Multi-session path: the session (and its Purple Fabric conversation_id,
+                    // once created) lives in SQLite via SessionStore, not ASP.NET Session — that's
+                    // what lets a user come back to an older analysis after their browser session
+                    // itself has expired.
+                    var chatSession = _sessions.GetSession(sessionId, userEmail);
+                    if (chatSession == null)
+                        return NotFound(new { error = "Session not found." });
+
+                    resolvedSessionId = sessionId;
+                    convId = chatSession.ConversationId;
+                    if (string.IsNullOrEmpty(convId))
+                    {
+                        convId = await _conversation.CreateConversationAsync(assetId);
+                        _sessions.SetConversationId(sessionId, convId);
+                        _logger.LogInformation("[ConversationController] Created new conversation {ConvId} for session {SessionId}",
+                            convId, sessionId);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[ConversationController] Reusing conversation {ConvId} for session {SessionId}",
+                            convId, sessionId);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(query))
+                    {
+                        _sessions.AddMessage(sessionId, "user", query);
+                        _sessions.SetTitleIfUnset(sessionId, query);
+                        _sessions.Touch(sessionId);
+                    }
                 }
                 else
                 {
-                    _logger.LogInformation("[ConversationController] Reusing conversation {ConvId} for slot {SlotKey}",
-                        convId, slotKey);
+                    // Legacy path (no sessionId supplied) — unchanged single-conversation-per-
+                    // slot behavior, kept so any older caller still works.
+                    convId = HttpContext.Session.GetString(ConvIdKey(slotKey));
+                    if (string.IsNullOrEmpty(convId))
+                    {
+                        convId = await _conversation.CreateConversationAsync(assetId);
+                        HttpContext.Session.SetString(ConvIdKey(slotKey), convId);
+                        _logger.LogInformation("[ConversationController] Created new conversation {ConvId} for slot {SlotKey}",
+                            convId, slotKey);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("[ConversationController] Reusing conversation {ConvId} for slot {SlotKey}",
+                            convId, slotKey);
+                    }
                 }
 
                 byte[]? fileBytes = null;
@@ -181,6 +225,9 @@ namespace DepositElasticity.Controllers
 
                 var previousFileId = HttpContext.Session.GetString(FileIdKey(slotKey));
                 var traceId = Guid.NewGuid().ToString();
+
+                if (resolvedSessionId != null)
+                    HttpContext.Session.SetString($"Trace_{traceId}_SessionId", resolvedSessionId);
 
                 _conversation.StartBackgroundSend(
                     traceId, convId, query ?? "",
@@ -212,6 +259,17 @@ namespace DepositElasticity.Controllers
                     var history = LoadHistory(slotKey);
                     history.Add(new ConversationMessage { Role = "agent", Text = status.Reply ?? "" });
                     SaveHistory(slotKey, history);
+
+                    // Multi-session persistence — guarded so a repeated poll after COMPLETED
+                    // (e.g. the client re-checking after a refresh) never double-inserts.
+                    var mappedSessionId = HttpContext.Session.GetString($"Trace_{traceId}_SessionId");
+                    if (!string.IsNullOrEmpty(mappedSessionId) &&
+                        HttpContext.Session.GetString($"Trace_{traceId}_Persisted") == null)
+                    {
+                        _sessions.AddMessage(mappedSessionId, "agent", status.Reply ?? "");
+                        _sessions.Touch(mappedSessionId);
+                        HttpContext.Session.SetString($"Trace_{traceId}_Persisted", "1");
+                    }
 
                     if (!string.IsNullOrEmpty(status.NewFileId))
                         HttpContext.Session.SetString(FileIdKey(slotKey), status.NewFileId);

@@ -17,6 +17,9 @@ builder.Services.AddHttpClient();
 
 builder.Services.AddScoped<IConversationAgentService, ConversationAgentService>();
 
+builder.Services.AddSingleton(new SessionStore(
+    Path.Combine(builder.Environment.ContentRootPath, "App_Data", "sessions.db")));
+
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, "App_Data", "Keys")))
     .SetApplicationName("DepositElasticityUI");
