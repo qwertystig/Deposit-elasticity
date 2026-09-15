@@ -1,0 +1,6 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+App_Data/Keys/*.xml

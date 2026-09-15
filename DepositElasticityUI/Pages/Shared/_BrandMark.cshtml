@@ -1,0 +1,22 @@
+@{
+    // Real Purple Fabric logo (uploaded asset). "full" shows the complete
+    // icon+wordmark lockup (used where there's room — rail header, login);
+    // "icon" shows just the square mark cropped from it (used for compact
+    // spots like the empty-state glyph, where the full wordmark won't fit).
+    var variant = ViewData["Variant"] as string ?? "full";
+    var showCaption = ViewData["ShowTitle"] as bool? ?? true;
+}
+@if (variant == "icon")
+{
+    <img src="~/images/purple-fabric-icon.png" alt="Purple Fabric" class="bde-mark-icon-only" />
+}
+else
+{
+    <div class="bde-mark">
+        <img src="~/images/purple-fabric-logo.png" alt="Purple Fabric" class="bde-mark-logo" />
+        @if (showCaption)
+        {
+            <div class="bde-mark-caption">Deposit Elasticity Console</div>
+        }
+    </div>
+}
