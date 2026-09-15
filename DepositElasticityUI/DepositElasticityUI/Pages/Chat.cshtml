@@ -1,0 +1,90 @@
+@page
+@model DepositElasticity.Pages.ChatModel
+@{
+    Layout = "_ChatLayout";
+    ViewData["Title"] = "Deposit Elasticity";
+}
+
+<div class="bde-app">
+
+    <aside class="bde-rail">
+        <div class="bde-rail-brand">
+            @await Html.PartialAsync("_BrandMark")
+        </div>
+
+        <button type="button" class="bde-new-chat" onclick="location.reload()">
+            <span>+</span><span>New analysis</span>
+        </button>
+
+        <div class="bde-rail-label">Recent</div>
+        <div class="bde-rail-list">
+            <div class="bde-rail-item active">
+                <div class="bde-rail-item-title">United States portfolio — full view</div>
+                <div class="bde-rail-item-meta">Today · 09:41</div>
+            </div>
+            <div class="bde-rail-item">
+                <div class="bde-rail-item-title">Caterpillar Treasury Ltd drill-down</div>
+                <div class="bde-rail-item-meta">Yesterday · 16:02</div>
+            </div>
+            <div class="bde-rail-item">
+                <div class="bde-rail-item-title">EMEA sector comparison</div>
+                <div class="bde-rail-item-meta">2 days ago</div>
+            </div>
+        </div>
+
+        <div class="bde-rail-foot">
+            <div class="bde-avatar">@Model.UserInitials</div>
+            <div>
+                <div class="bde-user-name">@Model.UserName</div>
+                <div class="bde-user-role">Treasury desk</div>
+            </div>
+            <a href="/Login" class="bde-signout">Sign out</a>
+        </div>
+    </aside>
+
+    <main class="bde-main">
+        <div class="bde-topbar">
+            <div>
+                <div class="bde-topbar-title">Deposit Elasticity Console</div>
+                <div class="bde-topbar-sub">Barclays Agent KB</div>
+            </div>
+            <div class="bde-status-chip">Live</div>
+        </div>
+
+        <div class="bde-scroll" id="bdeScroll">
+            <div class="bde-thread" id="bdeThread">
+
+                <div class="bde-empty" id="bdeEmptyState">
+                    @await Html.PartialAsync("_BrandMark", new ViewDataDictionary(ViewData) { { "ShowTitle", false } })
+                    <h2>Ask about any customer, sector, or country</h2>
+                    <p>The console pulls live balance and rate data and reasons through elasticity, reaction lag, and repricing priority.</p>
+                    <div class="bde-prompt-grid">
+                        <button type="button" class="bde-prompt-card" onclick="bdeSend('Give me a full portfolio view for the United States')">
+                            Give me a full portfolio view for the United States
+                        </button>
+                        <button type="button" class="bde-prompt-card" onclick="bdeSend('Which customers should we prioritise for repricing this week?')">
+                            Which customers should we prioritise for repricing this week?
+                        </button>
+                        <button type="button" class="bde-prompt-card" onclick="bdeSend('Walk me through Caterpillar Treasury Ltd in compact mode')">
+                            Walk me through Caterpillar Treasury Ltd in compact mode
+                        </button>
+                        <button type="button" class="bde-prompt-card" onclick="bdeSend('Compare elasticity across sectors in EMEA')">
+                            Compare elasticity across sectors in EMEA
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <div class="bde-input-dock">
+            <div class="bde-input-bar">
+                <textarea id="bdeInput" rows="1" placeholder="Ask about a customer, sector, country, or the whole portfolio…"></textarea>
+                <button type="button" class="bde-send-btn" id="bdeSendBtn" aria-label="Send">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 12 20 4l-6.5 16-2.5-7-7-1Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+                </button>
+            </div>
+            <div class="bde-input-foot">Deposit Elasticity Console is a POC — verify figures before relying on them for decisions.</div>
+        </div>
+    </main>
+</div>

@@ -1,0 +1,22 @@
+@{
+    // Abstract placeholder mark — a shield outline with three ascending bars,
+    // nodding to "deposit balances rising" without reproducing Barclays' actual
+    // eagle logo. Swap for the approved brand asset before anything client-facing.
+    var showTitle = ViewData["ShowTitle"] as bool? ?? true;
+}
+<div class="bde-mark">
+    <svg class="bde-mark-glyph" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M24 3 6 9v11c0 12.5 7.7 20.3 18 25 10.3-4.7 18-12.5 18-25V9L24 3Z"
+              fill="#00395D" stroke="#00AEEF" stroke-width="1.4" />
+        <rect x="16" y="26" width="4.2" height="9" rx="1" fill="#00AEEF" />
+        <rect x="21.9" y="20" width="4.2" height="15" rx="1" fill="#00AEEF" />
+        <rect x="27.8" y="15" width="4.2" height="20" rx="1" fill="#33C2F5" />
+    </svg>
+    @if (showTitle)
+    {
+        <div class="bde-mark-text">
+            <div class="bde-mark-title">Deposit Elasticity</div>
+            <div class="bde-mark-sub">BARCLAYS · TREASURY DESK</div>
+        </div>
+    }
+</div>

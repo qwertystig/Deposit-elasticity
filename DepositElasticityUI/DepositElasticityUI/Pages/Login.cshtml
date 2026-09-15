@@ -1,0 +1,40 @@
+@page
+@model DepositElasticity.Pages.LoginModel
+@{
+    Layout = "_LoginLayout";
+    ViewData["Title"] = "Sign in";
+}
+
+<div class="login-page">
+    <span class="login-env-tag">POC environment</span>
+
+    <div class="login-shell">
+        <div class="login-brand">
+            @await Html.PartialAsync("_BrandMark")
+        </div>
+
+        <div class="login-card">
+            <h1>Sign in</h1>
+            <p class="login-sub">Treasury &amp; relationship management access only.</p>
+
+            @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+            {
+                <div class="login-error">@Model.ErrorMessage</div>
+            }
+
+            <form method="post">
+                <div class="login-field">
+                    <label for="emailInput">Work email</label>
+                    <input type="email" name="Email" id="emailInput" placeholder="name@barclays.com" required autofocus />
+                </div>
+                <div class="login-field">
+                    <label for="passwordInput">Password</label>
+                    <input type="password" name="Password" id="passwordInput" placeholder="••••••••" required />
+                </div>
+                <button class="login-btn" type="submit">Sign in</button>
+            </form>
+        </div>
+
+        <div class="login-foot">Deposit Elasticity Console · Barclays Agent KB · Internal use only</div>
+    </div>
+</div>
