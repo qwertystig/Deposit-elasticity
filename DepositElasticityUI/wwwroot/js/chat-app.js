@@ -142,23 +142,66 @@ function bdeBaseChartOptions(extra) {
   return Object.assign(base, extra || {});
 }
 
-function bdeMakeCanvas(container) {
+function bdeChartMinWidth(pointCount, perPoint, base) {
+  if (!pointCount || pointCount <= 0) return null;
+  var needed = base + pointCount * perPoint;
+  return needed > base ? needed : null;
+}
+
+function bdeMakeCanvas(container, minWidth) {
   BDE_CHART_COUNTER++;
+  var scrollOuter = document.createElement('div');
+  scrollOuter.className = 'bde-chart-scroll';
   var wrap = document.createElement('div');
   wrap.className = 'bde-block-chart-canvas-wrap';
+  if (minWidth) wrap.style.minWidth = minWidth + 'px';
   var canvas = document.createElement('canvas');
   canvas.id = 'bdeChart' + BDE_CHART_COUNTER;
   wrap.appendChild(canvas);
-  container.appendChild(wrap);
+  scrollOuter.appendChild(wrap);
+  container.appendChild(scrollOuter);
   return canvas;
 }
 
 /* ---- Chart type 1: rateVsBalance (dual-axis, area + line) --------------- */
 
 function bdeRenderRateVsBalanceChart(container, daily) {
-  var series = (daily && daily.series) || [];
-  if (!series.length) { container.innerHTML = '<p class="bde-block-text-body">No daily series available to chart.</p>'; return; }
-  var canvas = bdeMakeCanvas(container);
+  var rows = Array.isArray(daily) ? daily : ((daily && daily.series) || []);
+  if (!rows.length) { container.innerHTML = '<p class="bde-block-text-body">No rate history available to chart.</p>'; return; }
+
+  // Real-world shape: a handful of rate-change events (date/before/after/bps/d60),
+  // not a dense daily series. Detect which shape we actually have.
+  var isDense = rows[0].operationalBalance != null || rows[0].appliedRate != null || bdeField(rows[0], ['operational_balance']) != null;
+
+  if (!isDense) {
+    // Sparse event rows — step chart of the applied rate at each change,
+    // with the 60-day balance move (or 30-day, whichever is present) as bars.
+    var canvas = bdeMakeCanvas(container, bdeChartMinWidth(rows.length, 50, 600));
+    var labels = rows.map(function (r) { return bdeField(r, ['date']); });
+    var rateAfter = rows.map(function (r) { return bdeField(r, ['after']); });
+    var move = rows.map(function (r) { return bdeField(r, ['d60', 'd30']); });
+    new Chart(canvas.getContext('2d'), {
+      data: {
+        labels: labels,
+        datasets: [
+          { type: 'bar', label: 'Balance move (£m)', data: move, yAxisID: 'yBal', backgroundColor: BDE_COLORS.cyanDim, borderColor: BDE_COLORS.cyan, borderWidth: 1 },
+          { type: 'line', label: 'Applied rate (%)', data: rateAfter, yAxisID: 'yRate', borderColor: BDE_COLORS.chartOrange, backgroundColor: 'transparent', borderWidth: 2, pointRadius: 3, stepped: true }
+        ]
+      },
+      options: bdeBaseChartOptions({
+        plugins: { legend: { display: true, position: 'top', labels: { color: BDE_COLORS.muted, font: { family: 'IBM Plex Mono', size: 10 }, boxWidth: 10 } } },
+        scales: {
+          x: { grid: { color: BDE_COLORS.grid }, ticks: { color: BDE_COLORS.muted, maxTicksLimit: 8, font: { family: 'IBM Plex Mono', size: 10 } } },
+          yBal: { position: 'left', grid: { color: BDE_COLORS.grid }, ticks: { color: BDE_COLORS.muted, font: { family: 'IBM Plex Mono', size: 10 } }, title: { display: true, text: 'Balance move', color: BDE_COLORS.muted, font: { size: 10 } } },
+          yRate: { position: 'right', grid: { display: false }, ticks: { color: BDE_COLORS.chartOrange, font: { family: 'IBM Plex Mono', size: 10 } }, title: { display: true, text: 'Rate %', color: BDE_COLORS.chartOrange, font: { size: 10 } } }
+        }
+      })
+    });
+    return;
+  }
+
+  var series = rows;
+  var canvas = bdeMakeCanvas(container, bdeChartMinWidth(series.length, 6, 600));
   var labels = series.map(function (p) { return p.date; });
 
   new Chart(canvas.getContext('2d'), {
@@ -204,16 +247,16 @@ function bdeRenderRateVsBalanceChart(container, daily) {
 /* ---- Chart type 2: operationalVsSurplus (stacked area, same shape) ------ */
 
 function bdeRenderOperationalVsSurplusChart(container, daily) {
-  var series = (daily && daily.series) || [];
-  if (!series.length) { container.innerHTML = '<p class="bde-block-text-body">No daily series available to chart.</p>'; return; }
-  var canvas = bdeMakeCanvas(container);
+  var series = Array.isArray(daily) ? daily : ((daily && daily.series) || []);
+  if (!series.length) { container.innerHTML = '<p class="bde-block-text-body">No balance history available to chart.</p>'; return; }
+  var canvas = bdeMakeCanvas(container, bdeChartMinWidth(series.length, 6, 600));
   new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
-      labels: series.map(function (p) { return p.date; }),
+      labels: series.map(function (p) { return bdeField(p, ['date']); }),
       datasets: [
-        { label: 'Operational', data: series.map(function (p) { return p.operationalBalance; }), borderColor: BDE_COLORS.good, backgroundColor: 'rgba(27,138,90,0.18)', fill: 'origin', pointRadius: 0, borderWidth: 1.5, stack: 's' },
-        { label: 'Surplus', data: series.map(function (p) { return p.surplusBalance; }), borderColor: BDE_COLORS.cyan, backgroundColor: BDE_COLORS.cyanDim, fill: '-1', pointRadius: 0, borderWidth: 1.5, stack: 's' }
+        { label: 'Operational', data: series.map(function (p) { return bdeField(p, ['operationalBalance', 'operational_balance']); }), borderColor: BDE_COLORS.good, backgroundColor: 'rgba(27,138,90,0.18)', fill: 'origin', pointRadius: series.length <= 15 ? 3 : 0, borderWidth: 1.5, stack: 's' },
+        { label: 'Surplus', data: series.map(function (p) { return bdeField(p, ['surplusBalance', 'surplus_balance']); }), borderColor: BDE_COLORS.cyan, backgroundColor: BDE_COLORS.cyanDim, fill: '-1', pointRadius: series.length <= 15 ? 3 : 0, borderWidth: 1.5, stack: 's' }
       ]
     },
     options: bdeBaseChartOptions({ scales: { x: { grid: { color: BDE_COLORS.grid }, ticks: { color: BDE_COLORS.muted, maxTicksLimit: 8, font: { family: 'IBM Plex Mono', size: 10 } } }, y: { stacked: true, grid: { color: BDE_COLORS.grid }, ticks: { color: BDE_COLORS.muted, font: { family: 'IBM Plex Mono', size: 10 } } } } })
@@ -238,7 +281,7 @@ function bdeRenderSensitivityScatterChart(container, rows, fieldMap) {
     };
   }).filter(function (r) { return r.deviation != null && r.lag != null; });
   if (!rows.length) { container.innerHTML = '<p class="bde-block-text-body">No comparable rate-sensitivity data available to chart.</p>'; return; }
-  var canvas = bdeMakeCanvas(container);
+  var canvas = bdeMakeCanvas(container, bdeChartMinWidth(rows.length, 35, 600));
   var buckets = { High: [], Medium: [], Low: [], Insufficient: [] };
   rows.forEach(function (r) {
     var flag = r.flag;
@@ -303,16 +346,16 @@ function bdeRenderLagChainChart(container, row) {
 /* ---- Chart type 5: responseCurves (30d vs 60d response per event) ------- */
 
 function bdeRenderResponseCurvesChart(container, daily) {
-  var changes = (daily && daily.rateChanges) || [];
+  var changes = Array.isArray(daily) ? daily : ((daily && daily.rateChanges) || []);
   if (!changes.length) { container.innerHTML = '<p class="bde-block-text-body">No rate-change events available to chart.</p>'; return; }
-  var canvas = bdeMakeCanvas(container);
+  var canvas = bdeMakeCanvas(container, bdeChartMinWidth(changes.length, 50, 600));
   new Chart(canvas.getContext('2d'), {
     type: 'bar',
     data: {
-      labels: changes.map(function (c) { return c.date; }),
+      labels: changes.map(function (c) { return bdeField(c, ['date']); }),
       datasets: [
-        { label: '30-day response', data: changes.map(function (c) { return c.d30 != null ? c.d30 : null; }), backgroundColor: BDE_COLORS.cyan },
-        { label: '60-day response', data: changes.map(function (c) { return c.d60; }), backgroundColor: BDE_COLORS.navy }
+        { label: '30-day response', data: changes.map(function (c) { return bdeField(c, ['d30']); }), backgroundColor: BDE_COLORS.cyan },
+        { label: '60-day response', data: changes.map(function (c) { return bdeField(c, ['d60']); }), backgroundColor: BDE_COLORS.navy }
       ]
     },
     options: bdeBaseChartOptions({
@@ -324,7 +367,9 @@ function bdeRenderResponseCurvesChart(container, daily) {
 function bdeResolveChartData(block, data, rowPool) {
   var timeSeriesCharts = ['rateVsBalance', 'operationalVsSurplus', 'responseCurves'];
   if (timeSeriesCharts.indexOf(block.chart) !== -1) {
-    return data.daily || null;
+    if (data.daily) return data.daily;
+    if (rowPool && rowPool.length) return rowPool;
+    return null;
   }
   // Row-based charts (sensitivityScatter, reactionLagChain): try an explicit
   // data object first, then fall back to a table block's rows from the same
@@ -340,27 +385,24 @@ function bdeRenderChartBlock(block, data, rowPool) {
   var wrap = document.createElement('div');
   wrap.className = 'bde-block bde-block-chart';
   var resolved = bdeResolveChartData(block, data, rowPool);
-  var noDataMsg = '<p class="bde-block-text-body" style="color:var(--faint);font-style:italic;">' +
-    'The agent named this chart but didn\u2019t include the underlying data series to draw it \u2014 ' +
-    'see the text above for the figures.</p>';
 
   switch (block.chart) {
     case 'rateVsBalance':
-      if (!resolved) { wrap.innerHTML = noDataMsg; break; }
+      if (!resolved || (resolved.length === 0)) return null;
       bdeRenderRateVsBalanceChart(wrap, resolved); break;
     case 'operationalVsSurplus':
-      if (!resolved) { wrap.innerHTML = noDataMsg; break; }
+      if (!resolved || (resolved.length === 0)) return null;
       bdeRenderOperationalVsSurplusChart(wrap, resolved); break;
     case 'sensitivityScatter':
     case 'elasticityScatter': // legacy alias
-      if (!resolved || !resolved.length) { wrap.innerHTML = noDataMsg; break; }
+      if (!resolved || !resolved.length) return null;
       bdeRenderSensitivityScatterChart(wrap, resolved, block); break;
     case 'reactionLagChain':
     case 'lagChain': // legacy alias
-      if (!resolved || !resolved.length) { wrap.innerHTML = noDataMsg; break; }
+      if (!resolved || !resolved.length) return null;
       bdeRenderLagChainChart(wrap, resolved[0]); break;
     case 'responseCurves':
-      if (!resolved) { wrap.innerHTML = noDataMsg; break; }
+      if (!resolved || (resolved.length === 0)) return null;
       bdeRenderResponseCurvesChart(wrap, resolved); break;
     default:
       wrap.innerHTML = '<p class="bde-block-text-body">Unknown chart type: ' + block.chart + '</p>';
@@ -438,7 +480,7 @@ function bdeRenderTableBlock(block, data) {
   var rows = (inlineRows && inlineRows.length) ? bdeTableBlockToObjects(block) : bdeResolveTableSource(block.source, data);
   var wrap = document.createElement('div');
   wrap.className = 'bde-block bde-collapsible';
-  if (!rows.length) { wrap.innerHTML = '<p class="bde-block-text-body" style="color:var(--faint);font-style:italic;">The agent named this table but didn\u2019t include the underlying rows \u2014 see the text above for the figures.</p>'; return wrap; }
+  if (!rows.length) { return null; }
 
   // "fields" (canonical data keys) and "columns" (display labels) are
   // decoupled when the agent provides both — falls back to using "columns"
@@ -568,9 +610,11 @@ function bdeRenderBlocks(payload) {
         el.innerHTML += '<div class="bde-block-text-body">' + bdeFormatTextBody(block.body) + '</div>';
         container.appendChild(el);
       } else if (block.type === 'chart') {
-        container.appendChild(bdeRenderChartBlock(block, data, rowPool));
+        var chartEl = bdeRenderChartBlock(block, data, rowPool);
+        if (chartEl) container.appendChild(chartEl);
       } else if (block.type === 'table') {
-        container.appendChild(bdeRenderTableBlock(block, data));
+        var tableEl = bdeRenderTableBlock(block, data);
+        if (tableEl) container.appendChild(tableEl);
       } else if (block.type === 'insight') {
         var ins = document.createElement('div');
         ins.className = 'bde-block bde-block-insight';

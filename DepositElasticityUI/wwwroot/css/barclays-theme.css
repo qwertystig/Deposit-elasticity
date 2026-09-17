@@ -86,7 +86,7 @@ button:focus-visible, input:focus-visible, a:focus-visible, textarea:focus-visib
 }
 
 .bde-mark-logo {
-  height: 42px;
+  height: 32px;
   width: auto;
   display: block;
 }
@@ -99,11 +99,11 @@ button:focus-visible, input:focus-visible, a:focus-visible, textarea:focus-visib
 }
 
 .bde-mark-icon-only {
-  width: 46px;
-  height: 46px;
-  border-radius: 11px;
+  width: 40px;
+  height: 40px;
   display: block;
 }
+
 
 /* ============================================================================
    LOGIN PAGE
@@ -147,15 +147,10 @@ button:focus-visible, input:focus-visible, a:focus-visible, textarea:focus-visib
   max-width: 400px;
 }
 
-.login-brand {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 28px;
-}
-
+.login-brand { display: flex; justify-content: center; margin-bottom: 28px; }
 .login-brand .bde-mark { align-items: center; }
-.login-brand .bde-mark-logo { height: 64px; }
-.login-brand .bde-mark-caption { font-size: 0.72rem; }
+.login-brand .bde-mark-logo { height: 48px; }
+.login-brand .bde-mark-caption { font-size: 0.74rem; }
 
 .login-card {
   background: var(--surface);
@@ -641,6 +636,11 @@ button:focus-visible, input:focus-visible, a:focus-visible, textarea:focus-visib
   padding: 16px 18px 10px;
   box-shadow: 0 1px 4px rgba(20,33,46,0.04);
 }
+.bde-chart-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; }
+.bde-chart-scroll::-webkit-scrollbar { height: 8px; }
+.bde-chart-scroll::-webkit-scrollbar-track { background: var(--surface-alt); border-radius: 4px; }
+.bde-chart-scroll::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 4px; }
+.bde-chart-scroll::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 .bde-block-chart-canvas-wrap { position: relative; height: 260px; }
 .bde-block-chart-legend {
   display: flex; flex-wrap: wrap; gap: 14px;
@@ -679,8 +679,17 @@ button:focus-visible, input:focus-visible, a:focus-visible, textarea:focus-visib
 .bde-collapsible.open .bde-collapsible-body { display: block; }
 .bde-collapsible.open .bde-collapsible-header { border-radius: var(--radius-md) var(--radius-md) 0 0; margin-bottom: 0; }
 
-.bde-block-table-wrap { border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
-.bde-block-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; font-family: var(--font-mono); }
+.bde-block-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.bde-block-table-wrap::-webkit-scrollbar { height: 8px; }
+.bde-block-table-wrap::-webkit-scrollbar-track { background: var(--surface-alt); }
+.bde-block-table-wrap::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 4px; }
+.bde-block-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--faint); }
+.bde-block-table { min-width: max-content; width: 100%; border-collapse: collapse; font-size: 0.78rem; font-family: var(--font-mono); }
 .bde-block-table th, .bde-block-table td { padding: 8px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--border); }
 .bde-block-table th { background: var(--surface-alt); color: var(--ink-soft); font-weight: 700; font-family: var(--font-body); font-size: 0.72rem; }
 .bde-block-table tr:last-child td { border-bottom: none; }
