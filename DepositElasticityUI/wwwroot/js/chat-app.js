@@ -226,20 +226,29 @@ function bdeRenderOperationalVsSurplusChart(container, daily) {
 
 /* ---- Chart type 3: elasticityScatter (portfolio-level) ------------------ */
 
-function bdeRenderElasticityScatterChart(container, summary) {
-  var rows = (summary || []).filter(function (r) { return r.response30dPct != null && r.policyLagDays != null; });
+function bdeRenderSensitivityScatterChart(container, rows, fieldMap) {
+  fieldMap = fieldMap || {};
+  rows = (rows || []).map(function (r) {
+    return {
+      deviation: bdeField(r, [fieldMap.x_field, 'deviation', 'Deviation'].filter(Boolean)),
+      lag: bdeField(r, [fieldMap.y_field, 'reaction_lag_days', 'reactionLagDays', 'reaction_lag'].filter(Boolean)),
+      flag: bdeField(r, [fieldMap.category_field, 'elasticity_flag', 'elasticity', 'sensitivity', 'Elasticity', 'Sensitivity'].filter(Boolean)) || 'Insufficient',
+      name: bdeField(r, [fieldMap.label_field, 'customer_name', 'customerName', 'customer', 'Customer'].filter(Boolean)) || '',
+      currency: bdeField(r, ['currency', 'Currency'])
+    };
+  }).filter(function (r) { return r.deviation != null && r.lag != null; });
   if (!rows.length) { container.innerHTML = '<p class="bde-block-text-body">No comparable rate-sensitivity data available to chart.</p>'; return; }
   var canvas = bdeMakeCanvas(container);
-  // Categorize by whether the customer's rate-change response beat its own baseline drift —
-  // this is the actual signal the KB summary pages compute, not a separate discrete flag.
-  var buckets = { 'More responsive than baseline': [], 'At or below baseline': [] };
+  var buckets = { High: [], Medium: [], Low: [], Insufficient: [] };
   rows.forEach(function (r) {
-    var bucket = (r.baseline30dPct == null || r.response30dPct > r.baseline30dPct) ? 'More responsive than baseline' : 'At or below baseline';
-    buckets[bucket].push({ x: r.response30dPct, y: r.policyLagDays, label: r.customerName + (r.currency ? ' (' + r.currency + ')' : '') });
+    var flag = r.flag;
+    if (!buckets[flag]) buckets[flag] = [];
+    var label = r.name + (r.currency ? ' (' + r.currency + ')' : '');
+    buckets[flag].push({ x: r.deviation, y: r.lag, label: label });
   });
-  var colorMap = { 'More responsive than baseline': BDE_COLORS.warn, 'At or below baseline': BDE_COLORS.good };
-  var datasets = Object.keys(buckets).filter(function (k) { return buckets[k].length; }).map(function (bucket) {
-    return { label: bucket, data: buckets[bucket], backgroundColor: colorMap[bucket], pointRadius: 5, pointHoverRadius: 7 };
+  var colorMap = { High: BDE_COLORS.bad, Medium: BDE_COLORS.warn, Low: BDE_COLORS.good, Insufficient: BDE_COLORS.muted };
+  var datasets = Object.keys(buckets).filter(function (k) { return buckets[k].length; }).map(function (flag) {
+    return { label: flag, data: buckets[flag], backgroundColor: colorMap[flag], pointRadius: 5, pointHoverRadius: 7 };
   });
   new Chart(canvas.getContext('2d'), {
     type: 'scatter',
@@ -250,8 +259,8 @@ function bdeRenderElasticityScatterChart(container, summary) {
         tooltip: { callbacks: { label: function (ctx) { return (ctx.raw.label || '') + ': (' + ctx.raw.x + ', ' + ctx.raw.y + ')'; } } }
       },
       scales: {
-        x: { title: { display: true, text: '30-day response (%)', color: BDE_COLORS.muted, font: { size: 10 } }, grid: { color: BDE_COLORS.grid }, ticks: { color: BDE_COLORS.muted, font: { family: 'IBM Plex Mono', size: 10 } } },
-        y: { title: { display: true, text: 'Policy-to-customer lag (days)', color: BDE_COLORS.muted, font: { size: 10 } }, grid: { color: BDE_COLORS.grid }, ticks: { color: BDE_COLORS.muted, font: { family: 'IBM Plex Mono', size: 10 } } }
+        x: { title: { display: true, text: 'Deviation', color: BDE_COLORS.muted, font: { size: 10 } }, grid: { color: BDE_COLORS.grid }, ticks: { color: BDE_COLORS.muted, font: { family: 'IBM Plex Mono', size: 10 } } },
+        y: { title: { display: true, text: 'Reaction lag (days)', color: BDE_COLORS.muted, font: { size: 10 } }, grid: { color: BDE_COLORS.grid }, ticks: { color: BDE_COLORS.muted, font: { family: 'IBM Plex Mono', size: 10 } } }
       }
     })
   });
@@ -259,13 +268,13 @@ function bdeRenderElasticityScatterChart(container, summary) {
 
 /* ---- Chart type 4: lagChain (hand-rolled SVG, not a Chart.js type) ------ */
 
-function bdeRenderLagChainChart(container, summaryRow) {
-  if (!summaryRow) { container.innerHTML = '<p class="bde-block-text-body">No account selected for a lag chain.</p>'; return; }
+function bdeRenderLagChainChart(container, row) {
+  if (!row) { container.innerHTML = '<p class="bde-block-text-body">No account selected for a lag chain.</p>'; return; }
   var hops = [
     { label: 'Policy change', days: null },
-    { label: 'Bank response', days: summaryRow.avgBankResponseLagDays },
-    { label: 'Customer rate', days: summaryRow.bankToCustomerLagDays },
-    { label: 'Balance moves', days: summaryRow.reactionLagDays }
+    { label: 'Bank response', days: bdeField(row, ['avg_bank_response_lag_days', 'bank_response_lag_days']) },
+    { label: 'Customer rate', days: bdeField(row, ['bank_to_customer_lag_days']) },
+    { label: 'Balance moves', days: bdeField(row, ['reaction_lag_days', 'reactionLagDays', 'reaction_lag']) }
   ];
   var w = 680, h = 130, nodeR = 26, gap = (w - nodeR * 2 * hops.length) / (hops.length - 1) + nodeR * 2;
   var svg = '<svg class="bde-lagchain-svg" viewBox="-20 0 ' + (w + 40) + ' ' + h + '" xmlns="http://www.w3.org/2000/svg">';
@@ -286,7 +295,8 @@ function bdeRenderLagChainChart(container, summaryRow) {
   var foot = document.createElement('p');
   foot.className = 'bde-block-text-body';
   foot.style.marginTop = '4px';
-  foot.textContent = 'End-to-end policy-to-balance lag: ' + (summaryRow.policyToBalanceLagDays != null ? summaryRow.policyToBalanceLagDays + ' days' : 'not available') + '.';
+  var p2b = bdeField(row, ['policy_to_balance_lag_days']);
+  foot.textContent = 'End-to-end policy-to-balance lag: ' + (p2b != null ? p2b + ' days' : 'not available') + '.';
   container.appendChild(foot);
 }
 
@@ -311,39 +321,130 @@ function bdeRenderResponseCurvesChart(container, daily) {
   });
 }
 
-function bdeRenderChartBlock(block, data) {
+function bdeResolveChartData(block, data, rowPool) {
+  var timeSeriesCharts = ['rateVsBalance', 'operationalVsSurplus', 'responseCurves'];
+  if (timeSeriesCharts.indexOf(block.chart) !== -1) {
+    return data.daily || null;
+  }
+  // Row-based charts (sensitivityScatter, reactionLagChain): try an explicit
+  // data object first, then fall back to a table block's rows from the same
+  // response — this is the common real case: the chart names fields with no
+  // data of its own, but a sibling table already has exactly those fields.
+  if (block.source && Array.isArray(data[block.source])) return data[block.source];
+  if (data.customerStatistics || data.summary) return data.customerStatistics || data.summary;
+  if (rowPool && rowPool.length) return rowPool;
+  return [];
+}
+
+function bdeRenderChartBlock(block, data, rowPool) {
   var wrap = document.createElement('div');
   wrap.className = 'bde-block bde-block-chart';
-  var source = block.source === 'summary' ? (data.summary || []) : data.daily;
+  var resolved = bdeResolveChartData(block, data, rowPool);
+  var noDataMsg = '<p class="bde-block-text-body" style="color:var(--faint);font-style:italic;">' +
+    'The agent named this chart but didn\u2019t include the underlying data series to draw it \u2014 ' +
+    'see the text above for the figures.</p>';
+
   switch (block.chart) {
-    case 'rateVsBalance': bdeRenderRateVsBalanceChart(wrap, source); break;
-    case 'operationalVsSurplus': bdeRenderOperationalVsSurplusChart(wrap, source); break;
-    case 'elasticityScatter': bdeRenderElasticityScatterChart(wrap, data.summary || []); break;
-    case 'lagChain':
-      wrap.innerHTML = '<p class="bde-block-text-body" style="color:var(--faint);font-style:italic;">This deployment\'s data only has a single policy-lag figure, not the 4-hop breakdown this chart needs — the agent should state the lag as text instead.</p>';
-      break;
-    case 'responseCurves': bdeRenderResponseCurvesChart(wrap, data.daily); break;
-    default: wrap.innerHTML = '<p class="bde-block-text-body">Unknown chart type: ' + block.chart + '</p>';
+    case 'rateVsBalance':
+      if (!resolved) { wrap.innerHTML = noDataMsg; break; }
+      bdeRenderRateVsBalanceChart(wrap, resolved); break;
+    case 'operationalVsSurplus':
+      if (!resolved) { wrap.innerHTML = noDataMsg; break; }
+      bdeRenderOperationalVsSurplusChart(wrap, resolved); break;
+    case 'sensitivityScatter':
+    case 'elasticityScatter': // legacy alias
+      if (!resolved || !resolved.length) { wrap.innerHTML = noDataMsg; break; }
+      bdeRenderSensitivityScatterChart(wrap, resolved, block); break;
+    case 'reactionLagChain':
+    case 'lagChain': // legacy alias
+      if (!resolved || !resolved.length) { wrap.innerHTML = noDataMsg; break; }
+      bdeRenderLagChainChart(wrap, resolved[0]); break;
+    case 'responseCurves':
+      if (!resolved) { wrap.innerHTML = noDataMsg; break; }
+      bdeRenderResponseCurvesChart(wrap, resolved); break;
+    default:
+      wrap.innerHTML = '<p class="bde-block-text-body">Unknown chart type: ' + block.chart + '</p>';
   }
   return wrap;
 }
 
 /* ---- Table block ---------------------------------------------------------*/
 
+function bdeNormalizeKey(header) {
+  return String(header).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+// A table block's real shape: "columns" (header strings) + "rows" (arrays of
+// values, positional). Converts to objects keyed BOTH by the literal header
+// text (so the table renderer can just do row[header]) and a normalized
+// snake_case version of the header (so chart renderers can read semantic
+// fields like "reaction_lag_days" regardless of exactly how the agent
+// phrased the column header).
+function bdeTableBlockToObjects(block) {
+  var cols = block.columns || [];
+  var rawRows = block.rows || block.data || [];
+  if (!rawRows.length) return [];
+  var rowsAreArrays = Array.isArray(rawRows[0]);
+  return rawRows.map(function (r) {
+    var obj = {};
+    if (rowsAreArrays) {
+      // Positional shape: row is an array, values line up with "columns" by index.
+      cols.forEach(function (c, i) {
+        obj[c] = r[i];
+        obj[bdeNormalizeKey(c)] = r[i];
+      });
+    } else {
+      // Self-describing shape: row is already an object keyed by field name.
+      // Copy through as-is, then add normalized-key aliases for consistency
+      // with the array-shape case, so chart field lookups work either way.
+      Object.keys(r).forEach(function (k) {
+        obj[k] = r[k];
+        obj[bdeNormalizeKey(k)] = r[k];
+      });
+      // If a declared column's exact wording doesn't match a row key,
+      // fall back to matching on the normalized version of that column name.
+      cols.forEach(function (c) {
+        if (obj[c] === undefined) {
+          var viaNormalized = obj[bdeNormalizeKey(c)];
+          if (viaNormalized !== undefined) obj[c] = viaNormalized;
+        }
+      });
+    }
+    return obj;
+  });
+}
+
+function bdeField(row, aliases) {
+  for (var i = 0; i < aliases.length; i++) {
+    if (row[aliases[i]] != null && row[aliases[i]] !== '') return row[aliases[i]];
+  }
+  return null;
+}
+
+// Legacy path: an older payload shape where blocks reference a top-level
+// "data" object by name instead of carrying rows inline. Kept for backward
+// compatibility with earlier agent versions and the seeded example session.
 function bdeResolveTableSource(source, data) {
   if (Array.isArray(data[source])) return data[source];
   if (data.daily && Array.isArray(data.daily[source])) return data.daily[source];
-  if (data.summary && source === 'summary') return data.summary;
+  if (data.summary && (source === 'summary' || source === 'customerStatistics')) return data.summary;
+  if (data.customerStatistics) return data.customerStatistics;
   return [];
 }
 
 function bdeRenderTableBlock(block, data) {
-  var rows = bdeResolveTableSource(block.source, data);
+  // Real, current shape first: the table carries its own rows inline.
+  var inlineRows = block.rows || block.data;
+  var rows = (inlineRows && inlineRows.length) ? bdeTableBlockToObjects(block) : bdeResolveTableSource(block.source, data);
   var wrap = document.createElement('div');
   wrap.className = 'bde-block bde-collapsible';
-  if (!rows.length) { wrap.innerHTML = '<p class="bde-block-text-body">No table data available.</p>'; return wrap; }
+  if (!rows.length) { wrap.innerHTML = '<p class="bde-block-text-body" style="color:var(--faint);font-style:italic;">The agent named this table but didn\u2019t include the underlying rows \u2014 see the text above for the figures.</p>'; return wrap; }
 
-  var cols = block.columns || Object.keys(rows[0]);
+  // "fields" (canonical data keys) and "columns" (display labels) are
+  // decoupled when the agent provides both — falls back to using "columns"
+  // for both, for older responses that don't separate the two.
+  var dataFields = block.fields || block.columns || Object.keys(rows[0]);
+  var displayLabels = block.columns || dataFields;
   var showRows = block.showRows || rows.length;
 
   var header = document.createElement('button');
@@ -361,11 +462,11 @@ function bdeRenderTableBlock(block, data) {
 
   function buildTable(limit) {
     var html = '<table class="bde-block-table"><thead><tr>';
-    cols.forEach(function (c) { html += '<th>' + c + '</th>'; });
+    displayLabels.forEach(function (c) { html += '<th>' + c + '</th>'; });
     html += '</tr></thead><tbody>';
     rows.slice(0, limit).forEach(function (row) {
       html += '<tr>';
-      cols.forEach(function (c) { html += '<td>' + (row[c] !== undefined ? row[c] : '') + '</td>'; });
+      dataFields.forEach(function (f) { html += '<td>' + (row[f] !== undefined && row[f] !== null ? row[f] : '') + '</td>'; });
       html += '</tr>';
     });
     html += '</tbody></table>';
@@ -424,28 +525,56 @@ var BDE_FALLBACK_SUGGESTIONS = [
   'Show related central bank rate events'
 ];
 
+function bdeFormatTextBody(body) {
+  if (!body) return '';
+  var paras = body.split(/\n\s*\n/); // blank-line-separated paragraphs/groups
+  return paras.map(function (group) {
+    var lines = group.split('\n');
+    var isBulletList = lines.length > 0 && lines.every(function (l) { return /^\s*[-*]\s+/.test(l) || l.trim() === ''; });
+    if (isBulletList) {
+      var items = lines.filter(function (l) { return l.trim() !== ''; })
+        .map(function (l) { return '<li>' + l.replace(/^\s*[-*]\s+/, '') + '</li>'; })
+        .join('');
+      return '<ul>' + items + '</ul>';
+    }
+    return '<p>' + group.split('\n').join('<br>') + '</p>';
+  }).join('');
+}
+
 function bdeRenderBlocks(payload) {
   var data = payload.data || {};
+  var blocks = payload.blocks || [];
   var container = document.createElement('div');
   container.className = 'bde-blocks';
   var hasSuggestions = false;
 
-  (payload.blocks || []).forEach(function (block) {
+  // Charts frequently name fields (e.g. "deviation", "reaction_lag_days")
+  // with no data of their own — but a table block earlier in the SAME
+  // response usually has exactly those fields in its rows. Pool every
+  // table's rows here so chart rendering can fall back to them.
+  var rowPool = [];
+  blocks.forEach(function (b) {
+    if (b.type === 'table' && ((b.rows && b.rows.length) || (b.data && b.data.length))) {
+      rowPool = rowPool.concat(bdeTableBlockToObjects(b));
+    }
+  });
+
+  blocks.forEach(function (block) {
     try {
       if (block.type === 'text') {
         var el = document.createElement('div');
         el.className = 'bde-block bde-block-text';
         if (block.title) el.innerHTML += '<div class="bde-block-text-title">' + block.title + '</div>';
-        el.innerHTML += '<div class="bde-block-text-body">' + block.body + '</div>';
+        el.innerHTML += '<div class="bde-block-text-body">' + bdeFormatTextBody(block.body) + '</div>';
         container.appendChild(el);
       } else if (block.type === 'chart') {
-        container.appendChild(bdeRenderChartBlock(block, data));
+        container.appendChild(bdeRenderChartBlock(block, data, rowPool));
       } else if (block.type === 'table') {
         container.appendChild(bdeRenderTableBlock(block, data));
       } else if (block.type === 'insight') {
         var ins = document.createElement('div');
         ins.className = 'bde-block bde-block-insight';
-        ins.innerHTML = '<strong>What it means: </strong>' + block.body;
+        ins.innerHTML = '<strong>What it means:</strong>' + bdeFormatTextBody(block.body);
         container.appendChild(ins);
       } else if (block.type === 'suggestions') {
         hasSuggestions = true;
@@ -468,6 +597,13 @@ function bdeRenderBlocks(payload) {
   return container;
 }
 
+function bdeStripCodeFence(text) {
+  if (!text) return text;
+  var trimmed = text.trim();
+  var m = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return m ? m[1] : text;
+}
+
 function bdeAppendAgentMessage(rawReply, timestampIso, responseTimeMs) {
   bdeHideEmptyState();
   var thread = document.getElementById('bdeThread');
@@ -485,7 +621,7 @@ function bdeAppendAgentMessage(rawReply, timestampIso, responseTimeMs) {
   row.appendChild(col);
 
   try {
-    var parsed = JSON.parse(rawReply);
+    var parsed = JSON.parse(bdeStripCodeFence(rawReply));
     if (parsed.blocks) {
       bubble.appendChild(bdeRenderBlocks(parsed));
     } else {
@@ -867,16 +1003,16 @@ function bdeExampleMessages() {
   var comparisonReply = JSON.stringify({
     blocks: [
       { type: 'text', title: 'Rate sensitivity — Vodafone Treasury UK vs BMW Group Deposits (GBP)',
-        body: "Vodafone's GBP account moved 1.73% of its latest balance over 30 days following a rate change, well above its 0.45% baseline drift. BMW's GBP account moved 0.50% following a rate change against a 0.23% baseline — both are responsive, but Vodafone's balance reacts about 3.5x more, proportionally, than BMW's. Policy lag also differs sharply: Vodafone's applied rate typically follows a Bank of England move within 5 days; BMW's follows the nearest Germany/ECB move within 19 days." },
-        { type: 'chart', chart: 'elasticityScatter', source: 'summary' },
-      { type: 'table', source: 'summary', columns: ['customerName', 'currency', 'response30dPct', 'baseline30dPct', 'policyLagDays'], showRows: 2 },
+        body: "Vodafone's GBP account shows a deviation of 1.28 between rate-change-day and normal-day balance movement — Medium elasticity — reacting within 5 days of a Bank of England move. BMW's GBP account shows a deviation of 0.27, also Medium elasticity, but reacts more slowly: 19 days after the nearest Germany/ECB move. Vodafone is the more immediately actionable of the two." },
+      { type: 'chart', chart: 'sensitivityScatter', source: 'customerStatistics' },
+      { type: 'table', source: 'customerStatistics', columns: ['customer_name', 'currency', 'deviation', 'elasticity_flag', 'reaction_lag_days'], showRows: 2 },
       { type: 'insight', body: 'Vodafone is the more rate-sensitive of the two GBP accounts — worth prioritising for surplus repricing conversations ahead of BMW\u2019s GBP account.' },
       { type: 'suggestions', items: ['Show BMW\u2019s EUR and USD accounts too', 'Which other GBP accounts are most responsive?', 'Show UK central bank rate events'] }
     ],
     data: {
-      summary: [
-        { customerName: 'Vodafone Treasury UK', currency: 'GBP', response30dPct: 1.73, baseline30dPct: 0.45, policyLagDays: 5, sourcePage: 'Vodafone_Treasury_UK.md' },
-        { customerName: 'BMW Group Deposits', currency: 'GBP', response30dPct: 0.50, baseline30dPct: 0.23, policyLagDays: 19, sourcePage: 'BMW_Group_Deposits.md' }
+      customerStatistics: [
+        { customer_name: 'Vodafone Treasury UK', currency: 'GBP', deviation: 1.28, elasticity_flag: 'Medium', reaction_lag_days: 5, avg_bank_response_lag_days: 2, bank_to_customer_lag_days: 1, policy_to_balance_lag_days: 5 },
+        { customer_name: 'BMW Group Deposits', currency: 'GBP', deviation: 0.27, elasticity_flag: 'Medium', reaction_lag_days: 19, avg_bank_response_lag_days: 4, bank_to_customer_lag_days: 12, policy_to_balance_lag_days: 19 }
       ]
     }
   });
