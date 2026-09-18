@@ -297,7 +297,12 @@ namespace DepositElasticity.Controllers
                     status = status.Status,
                     reply = status.Reply,
                     error = status.Error,
-                    files = filesForResponse
+                    files = filesForResponse,
+                    selectedTools = status.SelectedTools,
+                    notificationSteps = status.NotificationSteps,
+                    traces = status.Traces,
+                    sources = status.Sources,
+                    citation = status.Citation
                 });
             }
             catch (Exception ex)

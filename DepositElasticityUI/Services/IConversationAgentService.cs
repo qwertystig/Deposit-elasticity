@@ -37,5 +37,16 @@ namespace DepositElasticity.Services
         // filedownload resolve call needs it as part of the URL path.
         public List<GeneratedFile>? Files { get; set; }
         public string? MessageId { get; set; }
+
+        // NEW — live agent progress, for showing real tool-call/reasoning
+        // activity on the UI while a request is still in flight, and real
+        // sources/citations once a web-search-backed answer completes.
+        // Passed through as opaque JSON (raw JArray/JObject from Purple
+        // Fabric) since the exact shape of these varies by which tool ran.
+        public Newtonsoft.Json.Linq.JToken? SelectedTools { get; set; }
+        public Newtonsoft.Json.Linq.JToken? NotificationSteps { get; set; }
+        public Newtonsoft.Json.Linq.JToken? Traces { get; set; }
+        public Newtonsoft.Json.Linq.JToken? Sources { get; set; }
+        public Newtonsoft.Json.Linq.JToken? Citation { get; set; }
     }
 }

@@ -300,6 +300,24 @@ namespace DepositElasticity.Services
                     string? newFileId = null;
                     List<GeneratedFile> files = new();
                     string? completedMessageId = null;
+                    Newtonsoft.Json.Linq.JToken? finalSources = null;
+                    Newtonsoft.Json.Linq.JToken? finalCitation = null;
+
+                    // Live progress callback — fires on every poll attempt, well before
+                    // COMPLETED, so the UI can show real tool-call/reasoning activity
+                    // instead of a generic spinner. Keeps Status "PENDING" throughout;
+                    // only the tracer fields change as the agent works.
+                    void OnProgress(Newtonsoft.Json.Linq.JToken? selectedTools, Newtonsoft.Json.Linq.JToken? notificationSteps, Newtonsoft.Json.Linq.JToken? traces)
+                    {
+                        if (selectedTools == null && notificationSteps == null && traces == null) return;
+                        jobsRef[traceId] = new ConversationJobStatus
+                        {
+                            Status = "PENDING",
+                            SelectedTools = selectedTools,
+                            NotificationSteps = notificationSteps,
+                            Traces = traces
+                        };
+                    }
 
                     if (fileBytes != null && fileName != null)
                     {
@@ -314,10 +332,12 @@ namespace DepositElasticity.Services
                     }
                     else
                     {
-                        var (r, f, msgId) = await worker.SendMessageAsync(conversationId, query);
+                        var (r, f, msgId, sources, citation) = await worker.SendMessageAsync(conversationId, query, OnProgress);
                         reply = r;
                         files = f;
                         completedMessageId = msgId;
+                        finalSources = sources;
+                        finalCitation = citation;
                     }
 
                     jobsRef[traceId] = new ConversationJobStatus
@@ -326,7 +346,9 @@ namespace DepositElasticity.Services
                         Reply = reply,
                         NewFileId = newFileId,
                         Files = files,
-                        MessageId = completedMessageId
+                        MessageId = completedMessageId,
+                        Sources = finalSources,
+                        Citation = finalCitation
                     };
                 }
                 catch (Exception ex)
@@ -610,7 +632,7 @@ namespace DepositElasticity.Services
                 : query;
 
             _logger.LogInformation("[bg] File ready — sending query for conversation {ConvId}.", conversationId);
-            var (reply, _, _) = await SendMessageAsync(conversationId, effectiveQuery);
+            var (reply, _, _, _, _) = await SendMessageAsync(conversationId, effectiveQuery);
             return (reply, fileId ?? "");
         }
 
@@ -701,7 +723,8 @@ namespace DepositElasticity.Services
             _logger.LogWarning("[bg] WaitForFileIndexing timed out after {Max} attempts — sending query anyway.", maxAttempts);
         }
 
-        public async Task<(string Reply, List<GeneratedFile> Files, string MessageId)> SendMessageAsync(string conversationId, string query)
+        public async Task<(string Reply, List<GeneratedFile> Files, string MessageId, JToken? Sources, JToken? Citation)> SendMessageAsync(
+            string conversationId, string query, Action<JToken?, JToken?, JToken?>? onProgress = null)
         {
             await EnsureAuthenticatedAsync();
 
@@ -724,8 +747,8 @@ namespace DepositElasticity.Services
             if (string.IsNullOrEmpty(messageId))
                 throw new Exception($"[bg] No message_id received. Raw: {postJson}");
 
-            var (reply, files, _) = await PollForResponseAsync(conversationId, messageId);
-            return (reply, files, messageId);
+            var (reply, files, _, sources, citation) = await PollForResponseAsync(conversationId, messageId, onProgress);
+            return (reply, files, messageId, sources, citation);
         }
 
         private async Task DeleteFileAsync(string conversationId, string fileId)
@@ -737,7 +760,8 @@ namespace DepositElasticity.Services
             await _http.SendAsync(request);
         }
 
-        private async Task<(string Reply, List<GeneratedFile> Files, string MessageContentId)> PollForResponseAsync(string conversationId, string messageId)
+        private async Task<(string Reply, List<GeneratedFile> Files, string MessageContentId, JToken? Sources, JToken? Citation)> PollForResponseAsync(
+            string conversationId, string messageId, Action<JToken?, JToken?, JToken?>? onProgress = null)
         {
             const int maxAttempts = 400;
             bool reauthAttempted = false;
@@ -774,10 +798,19 @@ namespace DepositElasticity.Services
                 var content = contentArray?.FirstOrDefault();
                 string? status = content?["status"]?.ToString();
 
+                // Live progress — surfaced on every attempt, not just at completion, so the
+                // UI can show real Purple Fabric tool-call/reasoning activity while waiting.
+                // Whichever of these fields the platform actually populates for a given tool
+                // (selected_tools, notification_steps, traces) gets passed straight through;
+                // the frontend picks whichever it has.
+                onProgress?.Invoke(content?["selected_tools"], content?["notification_steps"], content?["traces"]);
+
                 if (status == "COMPLETED")
                 {
                     string reply = content?["response"]?.ToString() ?? "No text found in response field.";
                     string msgContentId = content?["message_content_id"]?.ToString() ?? "";
+                    JToken? sources = content?["sources"];
+                    JToken? citation = content?["citation"];
 
                     // FIX: was hardcoded to new List<GeneratedFile>() — now actually parses
                     // artifacts_generated.files, same logic as ConversationAgentService's
@@ -803,14 +836,14 @@ namespace DepositElasticity.Services
                         }
                     }
 
-                    return (reply, files, msgContentId);
+                    return (reply, files, msgContentId, sources, citation);
                 }
 
                 if (status == "FAILED" || status == "ERROR")
                     throw new Exception($"[bg] Agent returned failure status. Raw: {getJson}");
             }
 
-            return ("The agent timed out. Please try again.", new List<GeneratedFile>(), "");
+            return ("The agent timed out. Please try again.", new List<GeneratedFile>(), "", null, null);
         }
     }
 

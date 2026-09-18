@@ -717,6 +717,40 @@ button:focus-visible, input:focus-visible, a:focus-visible, textarea:focus-visib
 .bde-block-insight p:last-child, .bde-block-insight ul:last-child { margin-bottom: 0; }
 
 /* suggestions block */
+.bde-link { color: var(--cyan-dim); text-decoration: underline; text-underline-offset: 2px; }
+.bde-link:hover { color: var(--navy); }
+
+.bde-sources {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.bde-sources-label {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 8px;
+}
+.bde-sources-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.bde-source-chip {
+  display: inline-block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--surface-alt);
+  border: 1px solid var(--border-bright);
+  color: var(--cyan-dim);
+  border-radius: 20px;
+  padding: 6px 13px;
+  font-size: 0.76rem;
+  text-decoration: none;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+.bde-source-chip:hover { border-color: var(--cyan); color: var(--navy); background: #E7F6FD; }
+
 .bde-suggestions {
   width: 100%;
   margin: 0 auto 10px;

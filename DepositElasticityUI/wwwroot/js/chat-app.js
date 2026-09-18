@@ -46,20 +46,69 @@ function bdeAppendUserMessage(text, timestampIso) {
   bdeScrollToBottom();
 }
 
-var BDE_LOADING_MESSAGES = [
-  'Searching the Knowledge Garden…',
-  'Retrieving customer summary…',
-  'Checking rate-change history…',
-  'Cross-referencing central bank events…',
-  'Calculating rate-change responsiveness…',
-  'Reviewing operational vs surplus balance…',
-  'Comparing against baseline movement…',
-  'Checking policy-to-customer lag…',
-  'Assembling the response…'
-];
 var BDE_LOADING_TIMER = null;
+var BDE_LOADING_MESSAGES = [];
+var BDE_LIVE_TRACE_LABELS = []; // real Purple Fabric tracer data, once/if it arrives
 
-function bdeAppendTyping() {
+function bdeQueryRelevantLoadingMessages(query) {
+  var q = (query || '').trim();
+  var short = q.length > 50 ? q.slice(0, 50) + '…' : q;
+  var msgs = [
+    'Searching the Knowledge Garden…',
+    'Retrieving customer summary…',
+    'Checking rate-change history…',
+    'Cross-referencing central bank events…',
+    'Calculating rate-change responsiveness…',
+    'Reviewing operational vs surplus balance…',
+    'Comparing against baseline movement…',
+    'Checking policy-to-customer lag…',
+    'Assembling the response…'
+  ];
+  if (short) {
+    msgs.unshift('Working on: "' + short + '"');
+    msgs.splice(3, 0, 'Digging into the details of your question…');
+  }
+  return msgs;
+}
+
+// Best-effort extraction of readable labels from whatever shape Purple
+// Fabric's selected_tools / notification_steps / traces actually take —
+// each item might be a plain string or an object with one of several
+// possible label-ish fields, so this tries the common ones rather than
+// assuming one fixed schema.
+function bdeExtractTracerLabels(selectedTools, notificationSteps, traces) {
+  function fromArray(arr) {
+    if (!Array.isArray(arr) || !arr.length) return [];
+    return arr.map(function (item) {
+      if (typeof item === 'string') return item;
+      if (item && typeof item === 'object') {
+        return item.tool_name || item.name || item.label || item.step || item.message || item.description || item.title || null;
+      }
+      return null;
+    }).filter(Boolean);
+  }
+  var fromTools = fromArray(selectedTools);
+  if (fromTools.length) return fromTools.map(function (t) { return 'Calling ' + t + '…'; });
+  var fromSteps = fromArray(notificationSteps);
+  if (fromSteps.length) return fromSteps;
+  var fromTraces = fromArray(traces);
+  if (fromTraces.length) return fromTraces;
+  return [];
+}
+
+// Called from the polling loop whenever a response includes tracer data —
+// real agent activity takes over from the generic rotation immediately.
+function bdeUpdateLiveTrace(selectedTools, notificationSteps, traces) {
+  var labels = bdeExtractTracerLabels(selectedTools, notificationSteps, traces);
+  if (!labels.length) return;
+  BDE_LIVE_TRACE_LABELS = labels;
+  var el = document.getElementById('bdeLoadingText');
+  if (el) el.textContent = labels[labels.length - 1];
+}
+
+function bdeAppendTyping(queryText) {
+  BDE_LOADING_MESSAGES = bdeQueryRelevantLoadingMessages(queryText);
+  BDE_LIVE_TRACE_LABELS = [];
   var thread = document.getElementById('bdeThread');
   var row = document.createElement('div');
   row.id = 'bdeTypingRow';
@@ -74,9 +123,15 @@ function bdeAppendTyping() {
   var idx = 0;
   clearInterval(BDE_LOADING_TIMER);
   BDE_LOADING_TIMER = setInterval(function () {
-    idx = (idx + 1) % BDE_LOADING_MESSAGES.length;
     var el = document.getElementById('bdeLoadingText');
-    if (el) el.textContent = BDE_LOADING_MESSAGES[idx];
+    if (!el) return;
+    if (BDE_LIVE_TRACE_LABELS.length) {
+      idx = (idx + 1) % BDE_LIVE_TRACE_LABELS.length;
+      el.textContent = BDE_LIVE_TRACE_LABELS[idx];
+    } else {
+      idx = (idx + 1) % BDE_LOADING_MESSAGES.length;
+      el.textContent = BDE_LOADING_MESSAGES[idx];
+    }
   }, 1700);
 }
 
@@ -567,6 +622,17 @@ var BDE_FALLBACK_SUGGESTIONS = [
   'Show related central bank rate events'
 ];
 
+function bdeLinkify(text) {
+  if (!text) return text;
+  return text.replace(/(https?:\/\/[^\s<>"')\]]+)/g, function (url) {
+    var trail = '';
+    var clean = url;
+    var m = clean.match(/[.,;:!?)\]]+$/);
+    if (m) { trail = m[0]; clean = clean.slice(0, clean.length - trail.length); }
+    return '<a href="' + clean + '" target="_blank" rel="noopener noreferrer" class="bde-link">' + clean + '</a>' + trail;
+  });
+}
+
 function bdeFormatTextBody(body) {
   if (!body) return '';
   var paras = body.split(/\n\s*\n/); // blank-line-separated paragraphs/groups
@@ -575,11 +641,11 @@ function bdeFormatTextBody(body) {
     var isBulletList = lines.length > 0 && lines.every(function (l) { return /^\s*[-*]\s+/.test(l) || l.trim() === ''; });
     if (isBulletList) {
       var items = lines.filter(function (l) { return l.trim() !== ''; })
-        .map(function (l) { return '<li>' + l.replace(/^\s*[-*]\s+/, '') + '</li>'; })
+        .map(function (l) { return '<li>' + bdeLinkify(l.replace(/^\s*[-*]\s+/, '')) + '</li>'; })
         .join('');
       return '<ul>' + items + '</ul>';
     }
-    return '<p>' + group.split('\n').join('<br>') + '</p>';
+    return '<p>' + bdeLinkify(group.split('\n').join('<br>')) + '</p>';
   }).join('');
 }
 
@@ -648,7 +714,45 @@ function bdeStripCodeFence(text) {
   return m ? m[1] : text;
 }
 
-function bdeAppendAgentMessage(rawReply, timestampIso, responseTimeMs) {
+function bdeRenderSources(sources, citation) {
+  var items = [];
+  function collect(arr) {
+    if (!Array.isArray(arr)) return;
+    arr.forEach(function (s) {
+      if (typeof s === 'string') { items.push({ url: s, title: s }); return; }
+      if (s && typeof s === 'object') {
+        var url = s.source_url || s.url || s.link;
+        var title = s.title || s.name || url;
+        if (url) items.push({ url: url, title: title });
+      }
+    });
+  }
+  collect(sources);
+  collect(citation);
+  if (!items.length) return null;
+
+  var wrap = document.createElement('div');
+  wrap.className = 'bde-block bde-sources';
+  var label = document.createElement('div');
+  label.className = 'bde-sources-label';
+  label.textContent = 'Sources';
+  wrap.appendChild(label);
+  var list = document.createElement('div');
+  list.className = 'bde-sources-list';
+  items.forEach(function (it) {
+    var a = document.createElement('a');
+    a.href = it.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.className = 'bde-source-chip';
+    a.textContent = it.title;
+    list.appendChild(a);
+  });
+  wrap.appendChild(list);
+  return wrap;
+}
+
+function bdeAppendAgentMessage(rawReply, timestampIso, responseTimeMs, sources, citation) {
   bdeHideEmptyState();
   var thread = document.getElementById('bdeThread');
   var row = document.createElement('div');
@@ -675,6 +779,9 @@ function bdeAppendAgentMessage(rawReply, timestampIso, responseTimeMs) {
     bubble.innerHTML = bdeRenderMarkdown(rawReply);
   }
 
+  var sourcesEl = bdeRenderSources(sources, citation);
+  if (sourcesEl) bubble.appendChild(sourcesEl);
+
   var meta = document.createElement('div');
   meta.className = 'bde-msg-meta';
   var metaText = bdeFormatTime(timestampIso);
@@ -695,12 +802,13 @@ function bdePollStatus(traceId, sendStartMs) {
   fetch('/api/conversation/send-status/' + BDE_SLOT + '/' + encodeURIComponent(traceId))
     .then(function (r) { return r.json(); })
     .then(function (data) {
+      bdeUpdateLiveTrace(data.selectedTools, data.notificationSteps, data.traces);
       if (data.status === 'PENDING') { setTimeout(function () { bdePollStatus(traceId, sendStartMs); }, 2000); return; }
       bdeRemoveTyping();
       bdeSetSending(false);
       if (data.status === 'COMPLETED') {
         var elapsed = sendStartMs != null ? (Date.now() - sendStartMs) : null;
-        bdeAppendAgentMessage(data.reply, new Date().toISOString(), elapsed);
+        bdeAppendAgentMessage(data.reply, new Date().toISOString(), elapsed, data.sources, data.citation);
         bdeRefreshSessionList();
       }
       else bdeAppendAgentMessage('Sorry — something went wrong: ' + (data.error || 'unknown error'));
@@ -774,9 +882,10 @@ function bdeSend(text) {
   if (!text) return;
   var input = document.getElementById('bdeInput');
   if (input) { input.value = ''; input.style.height = 'auto'; }
+  if (BDE_EMPTY_SESSION_ID === BDE_ACTIVE_SESSION_ID) BDE_EMPTY_SESSION_ID = null;
   var sendStartMs = Date.now();
   bdeAppendUserMessage(text, new Date(sendStartMs).toISOString());
-  bdeAppendTyping();
+  bdeAppendTyping(text);
   bdeSetSending(true);
 
   if (BDE_DEMO_MODE) {
@@ -831,6 +940,7 @@ function bdeSend(text) {
 
 var BDE_SESSIONS_CACHE = [];
 var BDE_ACTIVE_SESSION_ID = null;
+var BDE_EMPTY_SESSION_ID = null; // the one known-empty, unused session, if any
 var BDE_EMPTY_STATE_HTML = '';
 var BDE_DEMO_SESSIONS = [];
 var BDE_DEMO_MESSAGES = {};
@@ -967,8 +1077,10 @@ function bdeLoadSessionIntoThread(id) {
   bdeClearThread();
   return bdeApiGetMessages(id).then(function (messages) {
     if (!messages || messages.length === 0) {
+      BDE_EMPTY_SESSION_ID = id;
       bdeShowEmptyState();
     } else {
+      if (BDE_EMPTY_SESSION_ID === id) BDE_EMPTY_SESSION_ID = null;
       messages.forEach(function (m, i) {
         if (m.role === 'user') {
           bdeAppendUserMessage(m.content, m.createdAt);
@@ -982,6 +1094,7 @@ function bdeLoadSessionIntoThread(id) {
       });
     }
   }).catch(function () {
+    BDE_EMPTY_SESSION_ID = id;
     bdeShowEmptyState();
   });
 }
@@ -993,10 +1106,24 @@ function bdeSwitchSession(id) {
   bdeLoadSessionIntoThread(id);
 }
 
+// Only one empty, unused analysis is ever kept around — if one already
+// exists (created but never sent a message), clicking "New analysis" again
+// just takes the user there instead of piling up another empty entry.
 function bdeNewAnalysis() {
+  var stillExists = BDE_EMPTY_SESSION_ID && BDE_SESSIONS_CACHE.some(function (s) { return s.id === BDE_EMPTY_SESSION_ID; });
+  if (stillExists) {
+    if (BDE_EMPTY_SESSION_ID === BDE_ACTIVE_SESSION_ID) {
+      bdeClearThread();
+      bdeShowEmptyState();
+    } else {
+      bdeSwitchSession(BDE_EMPTY_SESSION_ID);
+    }
+    return;
+  }
   bdeApiCreateSession().then(function (s) {
     BDE_SESSIONS_CACHE.unshift(s);
     BDE_ACTIVE_SESSION_ID = s.id;
+    BDE_EMPTY_SESSION_ID = s.id;
     bdeRenderSessionList(BDE_SESSIONS_CACHE);
     bdeClearThread();
     bdeShowEmptyState();
